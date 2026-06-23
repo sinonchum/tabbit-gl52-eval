@@ -321,17 +321,110 @@ Raw responses include Tabbit UI elements (*"New Tab"*, *"Select text or
 screenshot to ask"*, model selector labels). The `code_extractor` module
 handles this automatically; downstream consumers receive clean text.
 
-### Suitability by Workload
+### Suitability by Agent Workflow
 
-| Workload | Suitable? | Rationale |
-|---|---|---|
-| **Code generation** | ✅ Optimal | High-quality output, zero cost |
-| **Code review / debugging** | ✅ Optimal | Strong reasoning, no token anxiety |
-| **Architecture planning** | ✅ Optimal | Long-form responses, no per-token cost |
-| **Batch inference (>100 prompts)** | ⚠️ Feasible | Serial only; ~33 min per 100 prompts |
-| **Real-time streaming** | ❌ Unsuitable | No token-level streaming support |
-| **Multi-agent fan-out** | ❌ Unsuitable | Single Chat turn; no parallel dispatch |
-| **Production API endpoint** | ❌ Unsuitable | Browser-dependent; no HTTP API surface |
+The following analysis evaluates Tabbit→GLM-5.2 as a **real provider** for
+autonomous coding agents (Hermes Agent, Claude Code, Codex CLI) — not just as a
+standalone Chat interface. Each workflow is assessed against three constraints:
+
+1. **Latency budget** — 15–25s per LLM turn. A 10-turn agent session = 3–5 minutes of pure inference time.
+2. **Serial dispatch** — One prompt at a time. No parallel tool execution, no speculative branching.
+3. **Reliability profile** — CDP-dependent (browser must be running). Glic bridge recovery adds ~10s MTTR.
+
+#### ✅ Optimal — Reasoning-Bound Workflows
+
+These workflows are **reasoning-bound, not tool-call-bound**. The model's
+744B-MoE architecture delivers high-quality analysis per turn, and the
+per-turn latency is amortized over deep thinking that would take comparable
+time on any provider.
+
+| Workflow | Why it fits | Est. turns | Est. wall time |
+|----------|-------------|------------|----------------|
+| **Codebase exploration** | Read-heavy. 1 LLM call per 3–5 tool calls while reading files. | 4–8 | 2–4 min |
+| **Architecture decision records** | Compare trade-offs, produce structured doc. Single output, deep thinking. | 1–3 | 30s–1.5 min |
+| **Root-cause analysis** | Given stack trace + logs, reason through causality. Minimal tool calls. | 2–5 | 1–2.5 min |
+| **PR review (single PR)** | Read diff, produce inline comments. 1–2 LLM calls. | 1–2 | 20–40s |
+| **Refactoring strategy** | Analyze coupling, propose migration path. Reasoning-heavy, code-light. | 3–6 | 1.5–3 min |
+| **Security audit** | Read files, identify patterns, compose report. Single output artifact. | 5–10 | 2.5–5 min |
+| **SQL query optimization** | Read schema + slow query → suggest rewrite. 1–2 calls. | 1–2 | 20–40s |
+| **Error diagnosis** | Given error + code context, explain root cause. 1 call. | 1 | 20s |
+
+**Concrete example — root-cause analysis:**
+```
+Turn 1 (20s): Given traceback + 3 files, identify the null-pointer source
+Turn 2 (20s): Propose fix with before/after diff
+Total: 40s inference, ~1.5 min wall time. Frontier-model reasoning, $0.
+```
+
+#### ⚠️ Feasible — Works but Noticeably Slower
+
+These workflows **can work** but the serial-latency constraint makes them
+2–4× slower than a native streaming API provider. Use when cost savings
+($0 vs ~$1/session) outweigh the time penalty.
+
+| Workflow | Bottleneck | Est. turns | Est. wall time | vs API |
+|----------|-----------|------------|----------------|--------|
+| **Single-file feature** | Write → test → fix → retest loop | 5–12 | 2.5–6 min | 2–3× slower |
+| **Bug fix with test** | Red-green-refactor cycle adds latency per iteration | 8–20 | 4–10 min | 3–4× slower |
+| **Documentation generation** | Read files → write docs → verify formatting | 4–8 | 2–4 min | 1.5–2× slower |
+| **Config/dependency updates** | Read → update → verify build. Each verification adds 20s. | 3–8 | 1.5–4 min | 2× slower |
+| **Batch code review (5+ PRs)** | Serial dispatch. 5 PRs × 1–2 turns each = 10 turns. | 10–15 | 4–7 min | 3× slower |
+
+#### ❌ Unsuitable — Will Cause Active Frustration
+
+These workflows are **tool-call-bound** — the agent spends more time waiting
+for the LLM than executing. The 15–25s per-turn latency compounds, turning
+2-minute tasks into 15-minute ordeals. The Glic bridge may also disconnect
+mid-session, forcing a restart.
+
+| Workflow | Failure mode | Typical disaster |
+|----------|-------------|-----------------|
+| **Multi-file refactoring** | 10 files = 30+ turns to write + verify = 10+ minutes. Bridge disconnect mid-way loses context. | "Why is this still running after 20 minutes?" |
+| **TDD (red-green-refactor)** | 3 iterations × 5 functions = 15 test-fix cycles = 5+ min of pure latency. | Faster to write the code yourself. |
+| **CI/CD pipeline debugging** | Read logs → hypothesis → fix → push → read logs. 5 cycles = 5–10 min. | Pipeline takes 2 min; debugging takes 10 min. |
+| **Real-time pair programming** | 20s latency between every exchange breaks conversational flow. | "Hello?" … (20s) … "Oh, here's the code." |
+| **Large-scale code generation** | 20 files at 1 turn each = 7 min. API provider does it in 30s. | "I asked for CRUD scaffolding 10 min ago…" |
+| **Production incident response** | Each diagnostic turn costs 20s. 5 turns before first fix = 2 min. Unacceptable for SLO-bound incidents. | MTTR goes from 3 min → 10 min. Pageable event. |
+
+### Decision Framework
+
+```
+Is the task REASONING-BOUND or TOOL-CALL-BOUND?
+
+Reasoning-bound → use Tabbit→GLM-5.2:
+  - Deep analysis, few tool calls, single output artifact
+  - High-quality thinking > speed
+  - Examples: architecture review, root-cause analysis, PR review
+
+Tool-call-bound → use a fast API provider:
+  - Many test-fix-verify cycles or multi-file writes
+  - Fast iteration > per-turn quality
+  - Examples: TDD, large refactors, CI debugging, scaffolding
+```
+
+### Recommended Tiered Routing
+
+Pair Tabbit→GLM-5.2 with a fast/cheap model for a **tiered provider strategy**:
+
+```yaml
+# Example: Hermes Agent config.yaml
+model:
+  provider: openrouter
+  model: google/gemini-2.0-flash-001   # Default: fast iteration
+
+fallback_providers:
+  - provider: tabbit                     # Fallback: frontier reasoning
+    model: glm-5.2
+```
+
+**Routing heuristic for agent implementations:**
+- Prompt contains "review" / "analyze" / "architecture" / "why" → route to GLM-5.2
+- Prompt is part of a multi-turn agent loop (≥3 pending tool calls) → route to fast API
+- Single-turn deep analysis → route to GLM-5.2 (20s is acceptable for one shot)
+- Bulk generation or scaffolding → route to fast API
+
+This gives you **frontier-model reasoning for free** where it matters most,
+without paying the latency penalty on every turn.
 
 ### Best Practices for Agent Integration
 
@@ -340,7 +433,7 @@ handles this automatically; downstream consumers receive clean text.
    refactoring prompts to GLM-5.2 via Tabbit.
 
 2. **Implement retry with exponential backoff.** If the CDP connection fails
-   (Glic teardown, browser restart), reconnect with a `[1s, 2s, 4s]` backoff
+   (Glic teardown, browser restart), reconnect with `[1s, 2s, 4s]` backoff
    before surfacing the error.
 
 3. **Cache responses.** GLM-5.2 responses are deterministic for identical
@@ -353,6 +446,11 @@ handles this automatically; downstream consumers receive clean text.
 5. **Pre-warm the connection.** On agent startup, send a lightweight probe
    (`"Respond with OK"`) to verify CDP connectivity and warm the Glic bridge
    before dispatching substantive prompts.
+
+6. **Set user expectations.** When used as a Hermes Agent provider, the first
+   response should note: *"Running on GLM-5.2 via Tabbit (free, ~20s/turn).
+   Complex tasks may take several minutes. Use for deep reasoning, not rapid
+   iteration."*
 
 ---
 
