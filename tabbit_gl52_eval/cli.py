@@ -1,13 +1,16 @@
 
 #!/usr/bin/env python3
 """
-Tabbit GLM-5.2 Feiyue Evaluator — CLI
+Tabbit GLM-5.2 Free Provider — CLI
+
+Provides free access to GLM-5.2 via Tabbit browser's AI Panel.
+No API key, no payment, no daily quota.
 
 Usage:
-    tabbit-gl52-eval setup     Detect platform and show Tabbit install instructions
-    tabbit-gl52-eval eval      Run the full GLM-5.2 capability evaluation
-    tabbit-gl52-eval quick     Run a single test task to verify the pipeline
-    tabbit-gl52-eval info      Show platform and configuration information
+    tabbit-gl52 setup         Detect platform and show Tabbit install instructions
+    tabbit-gl52 send PROMPT   Send a single prompt and print the response
+    tabbit-gl52 chat          Interactive chat session (send prompts, read responses)
+    tabbit-gl52 info          Show platform and connection status
 """
 
 from __future__ import annotations
@@ -23,8 +26,11 @@ from tabbit_gl52_eval.platform_detect import (
     get_platform_label,
     _raise_unsupported,
 )
-from tabbit_gl52_eval.benchmarks import DEFAULT_BENCHMARKS, BenchmarkTask
-from tabbit_gl52_eval.runner import run_benchmarks, RunnerError
+from tabbit_gl52_eval.cdp_client import (
+    TabbitCDPClient,
+    TabbitCDPError,
+    TabbitTargetNotFoundError,
+)
 
 
 def cmd_setup() -> None:
@@ -34,159 +40,111 @@ def cmd_setup() -> None:
     url = get_download_url(info)
 
     print("=" * 60)
-    print("  Tabbit GLM-5.2 Feiyue Evaluator — Setup")
+    print("  Tabbit GLM-5.2 Free Provider — Setup")
     print("=" * 60)
     print(f"\n  Platform: {label}")
     print(f"  OS:       {info.raw_os}")
     print(f"  Arch:     {info.raw_arch}")
 
     if url:
-        print(f"\n  ✅ Download URL:")
+        print(f"\n  ✅ Download Tabbit:")
         print(f"     {url}")
-        print(f"\n  Steps:")
-        print(f"   1. Download Tabbit from the URL above")
+        print(f"\n  Steps to use GLM-5.2 for free:")
+        print(f"   1. Download & install Tabbit from the URL above")
         if info.is_macos:
-            print(f"   2. Open the .dmg file and drag Tabbit to /Applications")
-            print(f"   3. Launch Tabbit with CDP enabled:")
-            print(f"      open -a Tabbit --args --remote-debugging-port=9222")
+            print(f"   2. Launch with CDP: open -a Tabbit --args --remote-debugging-port=9222")
         elif info.is_linux:
-            print(f"   2. Install: sudo dpkg -i Tabbit-*.deb")
-            print(f"   3. Launch: tabbit --remote-debugging-port=9222")
+            print(f"   2. Launch with CDP: tabbit --remote-debugging-port=9222")
         elif info.is_windows:
-            print(f"   2. Run the installer")
-            print(f"   3. Launch: Tabbit.exe --remote-debugging-port=9222")
-        print(f"   4. Log into your Tabbit account")
-        print(f"   5. Open the AI Panel (click Tabbit AI icon in sidebar)")
-        print(f"   6. Select GLM-5.2 from the model picker")
-        print(f"   7. Run: tabbit-gl52-eval eval")
+            print(f"   2. Launch with CDP: Tabbit.exe --remote-debugging-port=9222")
+        print(f"   3. Log into your Tabbit account (free to create)")
+        print(f"   4. Open AI Panel (click Tabbit AI icon in sidebar)")
+        print(f"   5. Select GLM-5.2 from the model picker")
+        print(f"   6. Test: tabbit-gl52 send 'Hello, what model are you?'")
     else:
         print(f"\n  ❌ No official Tabbit build for this platform.")
         _raise_unsupported(info)
 
-    # Architecture-specific warnings
+    # Architecture-specific recovery instructions
     if info.is_macos and info.is_arm64:
-        print(f"\n  ⚠️  ARCHITECTURE NOTE (Apple Silicon):")
-        print(f"     If you accidentally download the Intel (x86_64) version:")
-        print(f"     - It will fail with 'App is damaged' on Apple Silicon")
-        print(f"     - Fix: Delete Tabbit from /Applications")
-        print(f"     - Re-download the arm64 version from the URL above")
+        print(f"\n  ⚠️  APPLE SILICON NOTE:")
+        print(f"     If you accidentally installed the Intel (x86_64) version:")
+        print(f"     → Delete: rm -rf /Applications/Tabbit.app")
+        print(f"     → Re-download the arm64 version from the URL above")
     elif info.is_macos and info.is_x86_64:
-        print(f"\n  ⚠️  ARCHITECTURE NOTE (Intel Mac):")
-        print(f"     If you accidentally download the Apple Silicon (arm64) version:")
-        print(f"     - It will not launch on Intel Macs")
-        print(f"     - Fix: Delete Tabbit from /Applications")
-        print(f"     - Re-download the x86_64 version from the URL above")
+        print(f"\n  ⚠️  INTEL MAC NOTE:")
+        print(f"     If you accidentally installed the Apple Silicon (arm64) version:")
+        print(f"     → Delete: rm -rf /Applications/Tabbit.app")
+        print(f"     → Re-download the x86_64 version from the URL above")
 
 
-def cmd_eval(cdp_port: int = 9222) -> None:
-    """Run the full evaluation suite."""
-    print("=" * 60)
-    print("  Tabbit GLM-5.2 Feiyue Capability Evaluation")
-    print("=" * 60)
-    print(f"\n  CDP Port: {cdp_port}")
-    print(f"  Tasks:    {len(DEFAULT_BENCHMARKS)}")
-    print(f"  Model:    GLM-5.2 (via Tabbit free tier)")
-    print(f"\n  Connecting to Tabbit...")
-    print(f"  (Make sure Tabbit is running with --remote-debugging-port={cdp_port})")
-    print(f"  (Make sure the AI Panel is open and GLM-5.2 is selected)")
-    print()
-
+def cmd_send(prompt: str, cdp_port: int = 9222) -> None:
+    """Send a single prompt to GLM-5.2 and print the response."""
     try:
-        records, recommendation = asyncio.run(
-            run_benchmarks(
-                tasks=DEFAULT_BENCHMARKS,
-                model_id="GLM-5.2",
-                cdp_port=cdp_port,
-            )
-        )
-    except RunnerError as e:
-        print(f"\n  ❌ ERROR: {e}")
+        response = asyncio.run(_send_and_read(prompt, cdp_port))
+        print(response)
+    except TabbitTargetNotFoundError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)
+    except TabbitCDPError as e:
+        print(f"❌ {e}", file=sys.stderr)
         sys.exit(1)
 
-    # ── Print detailed results ──────────────────────────────────────────
-    print(f"\n{'─' * 60}")
-    print(f"  Results")
-    print(f"{'─' * 60}")
-    print(f"  {'Task':<20} {'Level':<30} {'Result':<10} P/F")
-    print(f"  {'─' * 60}")
-    for r in records:
-        pf = f"{r.pytest_passed}/{r.pytest_failed}" if r.pytest_passed + r.pytest_failed > 0 else "-"
-        print(f"  {r.task_id:<20} {r.capability_level:<30} {r.result.value:<10} {pf}")
 
-    # ── Print classification ────────────────────────────────────────────
-    print(f"\n{'═' * 60}")
-    print(f"  Classification: {recommendation.action.value.upper()}")
-    print(f"{'═' * 60}")
-    print(f"  Passed:  {recommendation.passed_count}")
-    print(f"  Failed:  {recommendation.failed_count}")
-    print(f"  Blocked: {recommendation.blocked_count}")
-
-    if recommendation.mistake_counts:
-        print(f"  Mistakes:")
-        for cat, count in sorted(recommendation.mistake_counts.items()):
-            print(f"    {cat}: {count}")
-
-    print(f"\n  Verdict: ", end="")
-    if recommendation.is_strong:
-        print("STRONG ✅ — model qualifies for promotion")
-    elif recommendation.is_weak:
-        print("WEAK ⚠️ — model should be demoted")
-    else:
-        print("MID — model stays at current level")
-
-    print(f"\n  Rationale: {recommendation.rationale}")
+async def _send_and_read(prompt: str, cdp_port: int) -> str:
+    """Send one prompt and return the response."""
+    async with TabbitCDPClient(debug_port=cdp_port) as client:
+        return await client.send_and_read(prompt)
 
 
-def cmd_quick(cdp_port: int = 9222) -> None:
-    """Run a single quick test to verify the pipeline."""
-    test_task = BenchmarkTask(
-        task_id="quick.test",
-        capability_level="documentation_boilerplate",
-        category="test",
-        setup_files={
-            "hello.py": "def greet():\n    pass\n",
-            "test_hello.py": (
-                "from hello import greet\n\n"
-                "def test_greet():\n"
-                "    # This will only pass after the model implements greet()\n"
-                "    # For now it just checks the file is importable\n"
-                "    assert callable(greet)\n"
-            ),
-        },
-        prompt=(
-            "Implement the greet() function in hello.py. "
-            "It should return the string 'Hello, Feiyue!'. "
-            "Output ONLY the completed hello.py file."
-        ),
-        verifier_command=["pytest", "test_hello.py", "-v", "--tb=short"],
-        target_file="hello.py",
-    )
+def cmd_chat(cdp_port: int = 9222) -> None:
+    """Interactive chat session with GLM-5.2."""
+    print("=" * 60)
+    print("  Tabbit GLM-5.2 — Interactive Chat")
+    print("  Type /quit to exit, /clear to reset tracking")
+    print("=" * 60)
 
-    print("Running quick pipeline test...")
-    print("(This sends one prompt to GLM-5.2 and verifies the response.)\n")
+    async def chat_loop():
+        async with TabbitCDPClient(debug_port=cdp_port) as client:
+            print(f"\n  Connected! Send your first prompt.\n")
+            while True:
+                try:
+                    prompt = input("  You> ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\n  Goodbye!")
+                    break
+
+                if not prompt:
+                    continue
+                if prompt == "/quit":
+                    print("  Goodbye!")
+                    break
+                if prompt == "/clear":
+                    client._body_len_before = await client._get_body_length()
+                    print("  [Tracking reset]")
+                    continue
+
+                print("  GLM-5.2> ", end="", flush=True)
+                try:
+                    response = await client.send_and_read(prompt)
+                    print(response)
+                    print()
+                except TabbitCDPError as e:
+                    print(f"\n  ❌ Error: {e}")
+                    print()
 
     try:
-        records, rec = asyncio.run(
-            run_benchmarks(
-                tasks=[test_task],
-                model_id="GLM-5.2",
-                cdp_port=cdp_port,
-            )
-        )
-        r = records[0]
-        icon = "✅" if r.result.value == "passed" else "❌"
-        print(f"\n  {icon} {r.result.value.upper()}")
-        print(f"  Verifier: {r.verifier_result[:300]}")
-        if r.result.value == "passed":
-            print(f"\n  Pipeline is working! Run 'tabbit-gl52-eval eval' for full evaluation.")
-    except RunnerError as e:
-        print(f"\n  ❌ Pipeline test failed: {e}")
-        print(f"  Check that Tabbit is running and the AI Panel is open.")
+        asyncio.run(chat_loop())
+    except TabbitTargetNotFoundError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
+        sys.exit(1)
+    except TabbitCDPError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
         sys.exit(1)
 
 
 def cmd_info() -> None:
-    """Show platform and configuration information."""
+    """Show platform and connection status."""
     info = detect_platform()
     url = get_download_url(info)
 
@@ -195,20 +153,35 @@ def cmd_info() -> None:
     print(f"Arch detail:   {info.raw_arch}")
     print(f"Tabbit URL:    {url or 'NOT AVAILABLE'}")
     print(f"Python:        {sys.version}")
-    print(f"Benchmarks:    {len(DEFAULT_BENCHMARKS)} tasks")
+
+    # Check if Tabbit CDP is reachable
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://localhost:9222/json", timeout=3) as resp:
+            import json
+            targets = json.loads(resp.read())
+            panel = [t for t in targets if "panel" in t.get("url", "")]
+            if panel:
+                print(f"CDP:           ✅ Connected ({len(panel)} panel target(s))")
+            else:
+                print(f"CDP:           ⚠️  Tabbit running but AI Panel not open")
+    except Exception:
+        print(f"CDP:           ❌ Not reachable (launch Tabbit with --remote-debugging-port=9222)")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="tabbit-gl52-eval",
-        description="Evaluate GLM-5.2 capability via Tabbit using Feiyue methodology",
+        prog="tabbit-gl52",
+        description="Free GLM-5.2 access via Tabbit browser — no API key required",
     )
     sub = parser.add_subparsers(dest="command", help="Command")
 
     sub.add_parser("setup", help="Detect platform and show install instructions")
-    sub.add_parser("eval", help="Run full GLM-5.2 capability evaluation")
-    sub.add_parser("quick", help="Run a single pipeline test")
-    sub.add_parser("info", help="Show platform and config info")
+    sub.add_parser("chat", help="Interactive chat with GLM-5.2")
+    sub.add_parser("info", help="Show platform and connection status")
+
+    send_parser = sub.add_parser("send", help="Send a single prompt to GLM-5.2")
+    send_parser.add_argument("prompt", nargs="+", help="Prompt text")
 
     parser.add_argument(
         "--cdp-port",
@@ -221,10 +194,10 @@ def main() -> None:
 
     if args.command == "setup":
         cmd_setup()
-    elif args.command == "eval":
-        cmd_eval(cdp_port=args.cdp_port)
-    elif args.command == "quick":
-        cmd_quick(cdp_port=args.cdp_port)
+    elif args.command == "send":
+        cmd_send(" ".join(args.prompt), cdp_port=args.cdp_port)
+    elif args.command == "chat":
+        cmd_chat(cdp_port=args.cdp_port)
     elif args.command == "info":
         cmd_info()
     else:

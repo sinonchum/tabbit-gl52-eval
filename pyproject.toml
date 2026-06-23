@@ -3,19 +3,18 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tabbit-gl52-eval"
+name = "tabbit-gl52"
 version = "1.0.0"
-description = "Evaluate GLM-5.2 programming capability via Tabbit free tier using Feiyue methodology"
+description = "Free GLM-5.2 access via Tabbit browser — no API key, no payment, no quota"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
     {name = "Feiyue Contributors"}
 ]
-keywords = ["glm-5.2", "tabbit", "feiyue", "benchmark", "llm-evaluation", "capability-classification"]
+keywords = ["glm-5.2", "tabbit", "free", "llm", "provider", "cdp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
@@ -25,26 +24,14 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Testing",
 ]
 requires-python = ">=3.10"
 dependencies = [
     "websockets>=12",
-    "pytest>=7",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7",
-    "pytest-asyncio>=0.21",
 ]
 
 [project.scripts]
-tabbit-gl52-eval = "tabbit_gl52_eval.cli:main"
+tabbit-gl52 = "tabbit_gl52_eval.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["tabbit_gl52_eval*"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]

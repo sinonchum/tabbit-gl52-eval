@@ -1,41 +1,29 @@
-# Tabbit GLM-5.2 Feiyue Evaluator
+# tabbit-gl52 — Free GLM-5.2 Provider via Tabbit
 
-> **Evaluate GLM-5.2's programming capability for FREE using Tabbit's international edition — with real pytest verification and Feiyue capability classification.**
+> **Access GLM-5.2 (744B MoE, 1M context) for FREE through Tabbit browser's AI Panel. No API key. No payment. No daily quota.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
 ## What is this?
 
-This tool evaluates **GLM-5.2** (a 744B MoE model by Zhipu AI) by running real programming tasks through **Tabbit International Edition's free Chat**. It:
+A lightweight Python tool that lets your AI agent (Hermes, Claude Code, custom scripts) use **GLM-5.2 as a free provider** through the Tabbit browser. It handles:
 
-1. **Auto-detects your OS and chip architecture** — never download the wrong Tabbit binary again
-2. **Sends benchmark prompts** to GLM-5.2 via Chrome DevTools Protocol (CDP)
-3. **Extracts code** from model responses with multi-format parsing
-4. **Runs pytest verifiers** on the extracted code — not keyword matching, real execution
-5. **Classifies the model** as `weak` / `mid` / `strong` using the Feiyue capability ladder
+- **Auto-detection** of your OS and CPU architecture (no wrong downloads)
+- **CDP automation** — sends prompts and reads responses via Chrome DevTools Protocol
+- **Multi-format parsing** — extracts clean text from Tabbit's proprietary UI format
 
 ### Why Tabbit?
 
-Tabbit's international edition offers **GLM-5.2 for free with no daily quota**. No API key, no credit card, no rate limits. You just need the Tabbit browser installed and logged in.
+Tabbit's [FAQ](https://www.tabbit.ai) states: *"The browser and all integrated models are free, with no daily quota. There's no upsell tier hidden behind a paywall."*
 
-### Methodology
-
-This project implements the **Feiyue capability evaluation framework** (`feiyue_core/capability/rules.py`):
-
-| Rule | Threshold | Action |
-|------|-----------|--------|
-| Independent successes | ≥ 3 | **Promote** → `strong` |
-| Same mistake repeated | ≥ 2 | **Demote** → `weak` |
-| Everything else | — | **Keep** → `mid` |
-
-Each benchmark task runs through: **Prompt → Code Extraction → Syntax Check → pytest → Classification**.
+GLM-5.2 is one of the models available in the free tier. Normally it costs **$1.40/$4.40 per million tokens** via Z.AI's API. Through Tabbit, it's **completely free**.
 
 ---
 
 ## Quick Start
 
-### 1. Install this tool
+### 1. Install
 
 ```bash
 git clone https://github.com/sinonchum/tabbit-gl52-eval.git
@@ -46,34 +34,17 @@ pip install -e .
 ### 2. Detect your platform
 
 ```bash
-tabbit-gl52-eval setup
+tabbit-gl52 setup
 ```
 
-This auto-detects your OS and CPU (Apple Silicon vs Intel, Linux x86_64, etc.) and shows the **correct download URL** for your architecture.
+This auto-detects your OS and CPU architecture and shows the **correct Tabbit download URL** for your machine. It also warns you about common architecture mismatch mistakes.
 
-Output example:
-```
-Platform: macOS (Apple Silicon — M1/M2/M3/M4)
-OS:       darwin
-Arch:     arm64
+### 3. Install and launch Tabbit
 
-✅ Download URL:
-   https://www.tabbit.ai/download/Tabbit-1.1.2-arm64.dmg
-
-⚠️  ARCHITECTURE NOTE (Apple Silicon):
-   If you accidentally download the Intel (x86_64) version:
-   - It will fail with 'App is damaged' on Apple Silicon
-   - Fix: Delete Tabbit from /Applications
-   - Re-download the arm64 version from the URL above
-```
-
-### 3. Install Tabbit
-
-Download from the URL shown by `setup`, then:
+Download Tabbit from the URL shown by `setup`, install it, then launch with CDP enabled:
 
 **macOS:**
 ```bash
-# Launch with CDP enabled
 open -a Tabbit --args --remote-debugging-port=9222
 ```
 
@@ -87,56 +58,78 @@ tabbit --remote-debugging-port=9222
 Tabbit.exe --remote-debugging-port=9222
 ```
 
-### 4. Log in and open AI Panel
+### 4. Log in and open the AI Panel
 
 1. Log into your Tabbit account (or create a free one)
 2. Click the **Tabbit AI icon** in the browser sidebar
 3. Select **GLM-5.2** from the model picker
 
-### 5. Run the evaluation
+### 5. Start using GLM-5.2
 
 ```bash
-# Quick test — verify the pipeline works
-tabbit-gl52-eval quick
+# Single prompt
+tabbit-gl52 send "Write a Python function to reverse a linked list"
 
-# Full evaluation — 6 tasks, L1–L6
-tabbit-gl52-eval eval
+# Interactive chat
+tabbit-gl52 chat
+
+# Check connection status
+tabbit-gl52 info
 ```
 
-### 6. Interpret results
+---
+
+## Usage Modes
+
+### CLI — one-shot prompt
+
+```bash
+tabbit-gl52 send "Explain the difference between asyncio.gather and asyncio.wait"
+```
+
+Outputs the model's response to stdout. Use in pipes and scripts.
+
+### CLI — interactive chat
+
+```bash
+tabbit-gl52 chat
+```
 
 ```
-══════════════════════════════════════════════════════
-  Classification: PROMOTE
-══════════════════════════════════════════════════════
-  Passed:  6
-  Failed:  0
-  Blocked: 0
+  You> What is 2+2?
+  GLM-5.2> 2+2 = 4
 
-  Verdict: STRONG ✅ — model qualifies for promotion
-  Rationale: 6 independent successes (threshold: 3), teacher call rate 0.00.
+  You> /quit
+  Goodbye!
+```
+
+Commands: `/quit` to exit, `/clear` to reset response tracking.
+
+### Python API — programmatic access
+
+```python
+import asyncio
+from tabbit_gl52_eval.cdp_client import TabbitCDPClient
+
+async def ask_glm52(prompt: str) -> str:
+    async with TabbitCDPClient() as client:
+        return await client.send_and_read(prompt)
+
+response = asyncio.run(ask_glm52("Write a haiku about coding"))
+print(response)
+```
+
+### Hermes Agent — as a skill
+
+Load the `tabbit-glm52-eval` skill in Hermes and the agent can call GLM-5.2 directly:
+
+```
+/skill tabbit-glm52-eval
 ```
 
 ---
 
 ## Architecture
-
-```
-tabbit-gl52-eval/
-├── tabbit_gl52_eval/
-│   ├── __init__.py
-│   ├── cli.py              # CLI entry point (setup/eval/quick/info)
-│   ├── platform_detect.py  # OS + architecture auto-detection
-│   ├── cdp_client.py       # Chrome DevTools Protocol WebSocket client
-│   ├── code_extractor.py   # Multi-format code parsing from responses
-│   ├── evaluator.py        # Feiyue rules.py classification engine
-│   ├── benchmarks.py       # Benchmark task definitions (L1–L6)
-│   └── runner.py           # Orchestration: prompt → code → pytest → classify
-├── pyproject.toml
-└── README.md
-```
-
-### How it works
 
 ```
 ┌─────────────┐     CDP WebSocket     ┌──────────────────┐
@@ -148,134 +141,113 @@ tabbit-gl52-eval/
                                                │ raw text
                                       ┌────────▼─────────┐
                                       │  code_extractor   │
-                                      │  .py              │
+                                      │  .py (optional)   │
                                       │                   │
-                                      │  Extract clean    │
-                                      │  Python from      │
-                                      │  response text    │
+                                      │  Clean text from  │
+                                      │  Tabbit UI chrome │
                                       └────────┬─────────┘
-                                               │ code string
+                                               │ clean text
                                       ┌────────▼─────────┐
-                                      │  runner.py        │
+                                      │  Your Agent       │
                                       │                   │
-                                      │  Write to file    │
-                                      │  Syntax check     │
-                                      │  Run pytest       │
-                                      └────────┬─────────┘
-                                               │ pass/fail
-                                      ┌────────▼─────────┐
-                                      │  evaluator.py     │
-                                      │                   │
-                                      │  Feiyue rules.py  │
-                                      │  → PROMOTE/KEEP/  │
-                                      │    DEMOTE         │
+                                      │  Consume GLM-5.2  │
+                                      │  responses        │
                                       └──────────────────┘
 ```
+
+### How CDP communication works
+
+**Sending prompts:**
+1. Find the Chat input: `document.querySelector('[role="textbox"]')`
+2. Set content: `el.innerText = prompt`
+3. Trigger React: `el.dispatchEvent(new Event('input', {bubbles: true}))`
+4. Press Enter: `el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', ...}))`
+
+**Reading responses:**
+1. Use body-length diffing to detect new content
+2. Strip "Thinking Process" preamble
+3. Strip Tabbit UI chrome markers
+
+No accessibility permissions needed — pure DOM manipulation over CDP.
 
 ---
 
 ## Platform Support
 
-| OS | Architecture | Supported | Notes |
-|----|-------------|-----------|-------|
-| macOS | Apple Silicon (M1–M4) | ✅ | arm64 .dmg |
-| macOS | Intel (x86_64) | ✅ | x86_64 .dmg |
-| Linux | x86_64 / amd64 | ✅ | .deb package |
-| Windows | x86_64 | ✅ | .exe installer |
-| Linux | ARM64 (aarch64) | ⚠️ | Check tabbit.ai for builds |
-| Windows | ARM64 (Snapdragon) | ⚠️ | Check tabbit.ai for builds |
+| OS | Architecture | Supported | Binary Format |
+|----|-------------|-----------|---------------|
+| macOS | Apple Silicon (M1–M4) | ✅ | `Tabbit-*-arm64.dmg` |
+| macOS | Intel (x86_64) | ✅ | `Tabbit-*-x86_64.dmg` |
+| Linux | x86_64 / amd64 | ✅ | `Tabbit-*-amd64.deb` |
+| Windows | x86_64 | ✅ | `Tabbit-*-x64.exe` |
+| Linux | ARM64 (aarch64) | ⚠️ | Check tabbit.ai |
+| Windows | ARM64 (Snapdragon) | ⚠️ | Check tabbit.ai |
 
 ---
 
 ## Troubleshooting
 
-### "App is damaged" on macOS
+### "App is damaged" / won't launch on macOS
 
-You downloaded the wrong architecture version.
+You downloaded the **wrong architecture** version.
 
 ```bash
-# Check which version you have:
+# Check what you installed:
 file /Applications/Tabbit.app/Contents/MacOS/Tabbit
 
-# If it shows "arm64" but you're on Intel:
+# If "arm64" on Intel Mac → delete and re-download x86_64:
 rm -rf /Applications/Tabbit.app
-# Re-download the x86_64 version (run: tabbit-gl52-eval setup)
+tabbit-gl52 setup  # shows correct URL
 
-# If it shows "x86_64" but you're on Apple Silicon:
+# If "x86_64" on Apple Silicon → delete and re-download arm64:
 rm -rf /Applications/Tabbit.app
-# Re-download the arm64 version (run: tabbit-gl52-eval setup)
+tabbit-gl52 setup  # shows correct URL
 ```
 
 ### "Cannot reach CDP endpoint"
 
-Tabbit must be launched with `--remote-debugging-port=9222`:
+Tabbit must be launched with CDP enabled:
 
 ```bash
-# macOS
+# macOS — make sure to use the --args flag
 open -a Tabbit --args --remote-debugging-port=9222
 
-# Verify it's listening:
-curl -s http://localhost:9222/json | head -20
+# Verify:
+curl -s http://localhost:9222/json
 ```
 
 ### "No Tabbit AI Panel target found"
 
-Click the **Tabbit AI icon** in the browser sidebar to open the AI Panel. The panel must be open for CDP to discover it.
+Click the **Tabbit AI icon** in the sidebar to open the AI Panel. The webview must be open for CDP to discover it.
 
-### "Chat textbox not found"
+### "Connecting to AI Panel runtime... Retry"
 
-The AI Panel is still loading. Wait 5–10 seconds and retry. If persistent, the Glic bridge may have disconnected — close and reopen the AI Panel.
+The Glic bridge disconnected. Close and reopen the AI Panel (click Tabbit AI icon).
 
-### "No code block found in response"
+### Model not responding
 
-GLM-5.2 responded but the code extractor couldn't parse the format. This is rare — the extractor handles markdown code blocks, Tabbit's proprietary format, and heuristic plain-text extraction. If it happens, check the actual response via `tabbit-gl52-eval quick` to debug.
-
----
-
-## Benchmark Tasks
-
-| Task | Feiyue Level | Description | Tests |
-|------|-------------|-------------|-------|
-| L1.slugify | Documentation/Simple Code | Implement URL slug function | 5 |
-| L2.bsearch | Single-File Change | Fix binary search off-by-one | 6 |
-| L2.average | Single-File Change | Fix zero-division on empty list | 4 |
-| L4.palindrome | Bounded Debug | Implement case-insensitive palindrome | 6 |
-| L5.ratelimiter | Module Feature Slice | Thread-safe sliding window rate limiter | 3 |
-| L6.async_fetch | Complex Refactor | Convert sync HTTP to async/await + aiohttp | 5 |
-
-All tasks are self-contained — no network access or external packages needed.
+Make sure GLM-5.2 is selected in the model picker. You can verify by running `tabbit-gl52 info` and checking the connection.
 
 ---
 
-## Contributing
+## Rate Limits
 
-### Adding new benchmark tasks
+**There are no rate limits.** Tabbit's FAQ states all models are free with no daily quota.
 
-1. Add a `BenchmarkTask` to `tabbit_gl52_eval/benchmarks.py`
-2. Include the code skeleton, test file, prompt, and verifier command
-3. Add it to `DEFAULT_BENCHMARKS`
-4. Run `tabbit-gl52-eval quick` to verify
+However, there are practical constraints:
+- Each request takes **~15-25 seconds** (model inference + CDP overhead)
+- **Sequential only** — one prompt at a time through the Chat UI
+- The Glic bridge may disconnect after extended idle periods (just reopen the AI Panel)
 
-### Adding support for other models
-
-The CDP client is model-agnostic. To evaluate a different model in Tabbit:
-- Switch the model in Tabbit's UI
-- Pass `model_id` to `run_benchmarks()`
-
-### Installing as a Hermes skill
-
-```bash
-# Create skill from this repo
-hermes skills tap add https://github.com/YOUR_USERNAME/tabbit-gl52-eval
-hermes skills install tabbit-gl52-eval
-```
+For comparison, Z.AI's paid API pricing: **$1.40/1M input tokens, $4.40/1M output tokens**. Through Tabbit, you get the same model for free.
 
 ---
 
 ## Related Projects
 
+- [Tabbit Browser](https://www.tabbit.ai) — Free multi-model AI browser
+- [GLM-5.2](https://z.ai/blog/glm-5.2) — Z.AI's flagship coding model
 - [Feiyue](https://github.com/sinonchum/Feiyue) — AI capability evaluation framework
-- [Tabbit](https://www.tabbit.ai) — Free multi-model AI browser
 - [GPT4Free](https://github.com/xtekky/gpt4free) — Free LLM access via provider adapters
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) — Autonomous AI agent framework
 

@@ -1,14 +1,10 @@
 
 """
-Code Extraction from GLM-5.2 Responses
+Response Cleaner for Tabbit Chat Output
 
-Parses raw Tabbit Chat responses to extract clean Python source code.
-Handles multiple response formats:
-  1. Standard markdown code blocks: ```python ... ```
-  2. Tabbit's proprietary format: PYTHON\nCopy\n ...
-  3. Plain text code (last-resort heuristic)
-
-Also strips Tabbit UI chrome that may contaminate extracted code.
+Strips Thinking Process preamble and Tabbit UI chrome from raw
+model responses. Also provides optional code block extraction
+for programming tasks.
 """
 
 from __future__ import annotations
