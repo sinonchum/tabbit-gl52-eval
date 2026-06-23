@@ -198,6 +198,9 @@ class TabbitCDPClient:
     async def send_and_read(self, prompt: str) -> str:
         """Convenience: send a prompt, wait, and return the response."""
         await self.send_prompt(prompt)
+        # Reset body-length baseline after the prompt was injected into the DOM,
+        # so read_response only captures the model's reply (not the prompt text).
+        self._body_len_before = await self._get_body_length()
         return await self.read_response()
 
     # ── Internal methods ────────────────────────────────────────────────
@@ -209,7 +212,9 @@ class TabbitCDPClient:
     async def _find_panel_target(self) -> dict[str, Any] | None:
         """Query http://localhost:<port>/json for the AI Panel webview target.
 
-        The AI Panel URL contains 'panel' and 'mode=mi' (machine interface).
+        The AI Panel URL contains 'panel'. Prefers active chat sessions
+        (panel/<uuid>) over the initial panel screen (panel?mode=mi).
+        Falls back to checking for a live textbox.
         """
         import urllib.request
 
@@ -224,12 +229,20 @@ class TabbitCDPClient:
                 f"Error: {e}"
             ) from e
 
-        for target in targets:
-            target_url = target.get("url", "")
-            if "panel" in target_url and "mode=mi" in target_url:
-                return target
+        # Collect all panel targets
+        panels = [
+            t for t in targets
+            if "panel" in t.get("url", "")
+            and ("mode=mi" in t.get("url", "") or "panel/" in t.get("url", ""))
+        ]
 
-        return None
+        if not panels:
+            return None
+
+        # Prefer targets with "panel/<uuid>" (active chat session) over "mode=mi" (fresh panel)
+        panels.sort(key=lambda t: 0 if "panel/" in t["url"] else 1)
+
+        return panels[0]
 
     async def _evaluate(self, expression: str) -> str:
         """Send Runtime.evaluate and return the result value.
