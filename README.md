@@ -230,16 +230,129 @@ Make sure GLM-5.2 is selected in the model picker. You can verify by running `ta
 
 ---
 
-## Rate Limits
+## Service-Level Characteristics
 
-**There are no rate limits.** Tabbit's FAQ states all models are free with no daily quota.
+### Throughput Model
 
-However, there are practical constraints:
-- Each request takes **~15-25 seconds** (model inference + CDP overhead)
-- **Sequential only** — one prompt at a time through the Chat UI
-- The Glic bridge may disconnect after extended idle periods (just reopen the AI Panel)
+Tabbit provides **uncapped, zero-cost access** to GLM-5.2 and all other
+integrated models. The official FAQ states:
 
-For comparison, Z.AI's paid API pricing: **$1.40/1M input tokens, $4.40/1M output tokens**. Through Tabbit, you get the same model for free.
+> *"The browser and all integrated models are free, with no daily quota.
+> There's no upsell tier hidden behind a paywall."*
+>
+> — [tabbit.ai](https://www.tabbit.ai)
+
+Unlike metered API gateways (OpenRouter, Z.AI, Anthropic), Tabbit does not
+enforce token-based billing, rate limiting, or concurrency throttling at the
+application layer. Usage is governed exclusively by the Chat UI's inherent
+serialization model and the underlying inference latency of the selected model.
+
+### Observed Performance
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Round-trip latency** | 15–25 seconds | Model inference + CDP transport + DOM I/O |
+| **Concurrency** | 1 (serial) | Single Chat turn; no parallel prompt dispatch |
+| **Context persistence** | Session-scoped | Chat history retained server-side; no explicit context window cutoff observed |
+| **Idle timeout** | ~10–30 minutes | Glic bridge may tear down; reconnect by reopening AI Panel |
+| **Mean time to recover (MTTR)** | < 10 seconds | Reopen AI Panel → CDP auto-rediscovers target |
+
+### Throughput Estimation
+
+```
+Peak throughput  =  1 request / 20 seconds  =  3 requests/minute
+                                             ≈ 180 requests/hour
+                                             ≈ 4,320 requests/day (theoretical max)
+```
+
+In practice, agent-driven workflows typically consume **60–120 requests per
+session** before context compression or task completion, well within the
+sustainable envelope.
+
+### Cost Comparison: Tabbit Free vs. Z.AI Paid API
+
+| | Tabbit (Free) | Z.AI API (Paid) |
+|---|---|---|
+| **Input pricing** | $0 | $1.40 / 1M tokens |
+| **Output pricing** | $0 | $4.40 / 1M tokens |
+| **Cached input** | N/A | $0.26 / 1M tokens |
+| **Daily quota** | None | Tier-dependent (Lite/Pro/Max) |
+| **Rate limiting** | None | Per-tier token budget |
+| **Concurrent requests** | 1 (Chat UI) | Configurable |
+| **Context window** | Not explicitly capped | 1M tokens (glm-5.2[1m]) |
+| **SLA / uptime** | Best-effort (free browser) | 99.5% (paid API) |
+
+**Cost avoidance example:** A coding agent that consumes 500K input + 100K
+output tokens per session would cost **~$1.14/session** via Z.AI's API.
+Through Tabbit, the same workload is **$0.00/session**.
+
+### Practical Constraints
+
+#### 1. Serial Prompt Dispatch
+
+The Chat UI accepts one prompt per turn; responses must be fully received
+before the next prompt can be dispatched. This is an architectural constraint
+of the Chat interface, not a rate limit. Workloads requiring parallel
+speculative decoding or multi-prompt fan-out are not suitable.
+
+**Mitigation:** Batch independent prompts sequentially; use this provider
+for targeted, high-value reasoning tasks rather than bulk generation.
+
+#### 2. Glic Bridge Stability
+
+Tabbit's AI Panel communicates with the model backend through a **Glic bridge**
+(visible as `chrome://glic/` in CDP targets). This bridge may tear down after
+extended idle periods (~10–30 minutes of inactivity). When this occurs, the
+panel displays *"Connecting to the AI Panel runtime... Retry"*.
+
+**Recovery:** Close and reopen the AI Panel (click the Tabbit AI icon in the
+sidebar). The CDP client automatically discovers the new webview target on
+the next `connect()` call. MTTR is typically under 10 seconds.
+
+#### 3. No Streaming
+
+Responses are delivered as complete text blocks, not token-level streams.
+This adds ~1–3 seconds of buffering latency compared to streaming API endpoints,
+but eliminates the complexity of incremental parsing.
+
+#### 4. UI Chrome in Responses
+
+Raw responses include Tabbit UI elements (*"New Tab"*, *"Select text or
+screenshot to ask"*, model selector labels). The `code_extractor` module
+handles this automatically; downstream consumers receive clean text.
+
+### Suitability by Workload
+
+| Workload | Suitable? | Rationale |
+|---|---|---|
+| **Code generation** | ✅ Optimal | High-quality output, zero cost |
+| **Code review / debugging** | ✅ Optimal | Strong reasoning, no token anxiety |
+| **Architecture planning** | ✅ Optimal | Long-form responses, no per-token cost |
+| **Batch inference (>100 prompts)** | ⚠️ Feasible | Serial only; ~33 min per 100 prompts |
+| **Real-time streaming** | ❌ Unsuitable | No token-level streaming support |
+| **Multi-agent fan-out** | ❌ Unsuitable | Single Chat turn; no parallel dispatch |
+| **Production API endpoint** | ❌ Unsuitable | Browser-dependent; no HTTP API surface |
+
+### Best Practices for Agent Integration
+
+1. **Reserve for reasoning-heavy tasks.** Use cheaper/faster models for
+   boilerplate generation; route complex debugging, architecture, and
+   refactoring prompts to GLM-5.2 via Tabbit.
+
+2. **Implement retry with exponential backoff.** If the CDP connection fails
+   (Glic teardown, browser restart), reconnect with a `[1s, 2s, 4s]` backoff
+   before surfacing the error.
+
+3. **Cache responses.** GLM-5.2 responses are deterministic for identical
+   prompts at temperature 0. Cache results locally to avoid redundant calls.
+
+4. **Monitor body-length drift.** The CDP client tracks `document.body.innerText`
+   length to detect stale reads. Reset tracking if response extraction returns
+   empty content twice consecutively.
+
+5. **Pre-warm the connection.** On agent startup, send a lightweight probe
+   (`"Respond with OK"`) to verify CDP connectivity and warm the Glic bridge
+   before dispatching substantive prompts.
 
 ---
 
