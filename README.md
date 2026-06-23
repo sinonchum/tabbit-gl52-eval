@@ -38,7 +38,7 @@ Each benchmark task runs through: **Prompt → Code Extraction → Syntax Check 
 ### 1. Install this tool
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/tabbit-gl52-eval.git
+git clone https://github.com/sinonchum/tabbit-gl52-eval.git
 cd tabbit-gl52-eval
 pip install -e .
 ```
