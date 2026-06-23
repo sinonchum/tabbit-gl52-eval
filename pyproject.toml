@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabbit-gl52"
-version = "1.1.0"
+version = "1.0.0"
 description = "Free GLM-5.2 access via Tabbit browser — no API key, no payment, no quota"
 readme = "README.md"
 license = {text = "MIT"}
